@@ -1,0 +1,5 @@
+---
+deployment:
+  tasks:
+    - export DEPLOYPATH=/home1/battley4/public_html/tarrytown
+    - /bin/cp -R . $DEPLOYPATH
