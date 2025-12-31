@@ -1,15 +1,28 @@
 ---
 deployment:
   tasks:
-    - export DEPLOYPATH=/home1/battley4/public_html/tarrytown/
-    - /bin/mkdir -p $DEPLOYPATH
+    - export REPO=/home1/battley4/repositories/tarrytown-archive
+    - export DEPLOYPATH=/home1/battley4/public_html/tarrytown
 
-    # Copy folders
-    - /bin/cp -R api $DEPLOYPATH
-    - /bin/cp -R assets $DEPLOYPATH
-    - /bin/cp -R data $DEPLOYPATH
+    # Log what we're deploying (helps debug)
+    - /bin/echo "Deploying from $REPO to $DEPLOYPATH"
+    - /bin/ls -la "$REPO/index.html"
+    - /bin/grep -n "navbar-brand" "$REPO/index.html" || true
 
-    # Copy individual top-level files
-    - /bin/cp index.html $DEPLOYPATH
-    - /bin/cp tapes.html $DEPLOYPATH
-    - /bin/cp clips.html $DEPLOYPATH
+    # Ensure destination exists
+    - /bin/mkdir -p "$DEPLOYPATH"
+
+    # Copy folders (clean first so old files don't linger)
+    - /bin/rm -rf "$DEPLOYPATH/api" "$DEPLOYPATH/assets" "$DEPLOYPATH/data"
+    - /bin/cp -R "$REPO/api" "$DEPLOYPATH/"
+    - /bin/cp -R "$REPO/assets" "$DEPLOYPATH/"
+    - /bin/cp -R "$REPO/data" "$DEPLOYPATH/"
+
+    # Force overwrite key files using absolute source paths
+    - /bin/cp -f "$REPO/index.html" "$DEPLOYPATH/index.html"
+    - /bin/cp -f "$REPO/tapes.html" "$DEPLOYPATH/tapes.html"
+    - /bin/cp -f "$REPO/clips.html" "$DEPLOYPATH/clips.html"
+
+    # Prove what landed in production
+    - /bin/ls -la "$DEPLOYPATH/index.html"
+    - /bin/grep -n "navbar-brand" "$DEPLOYPATH/index.html" || true
