@@ -3,4 +3,13 @@ deployment:
   tasks:
     - export DEPLOYPATH=/home1/battley4/public_html/tarrytown/
     - /bin/mkdir -p $DEPLOYPATH
-    - /bin/cp -R * $DEPLOYPATH
+
+    # Copy folders
+    - /bin/cp -R api $DEPLOYPATH
+    - /bin/cp -R assets $DEPLOYPATH
+    - /bin/cp -R data $DEPLOYPATH
+
+    # Copy individual top-level files
+    - /bin/cp index.html $DEPLOYPATH
+    - /bin/cp tapes.html $DEPLOYPATH
+    - /bin/cp clips.html $DEPLOYPATH
