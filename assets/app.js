@@ -44,11 +44,23 @@ async function loadPage(config) {
   var titleElId = config.titleElId || "site-title";
   var introElId = config.introElId || "site-intro";
   var container = document.getElementById("content");
+  var navPlace = document.getElementById("navbar-placeholder");
 
   if (!container) {
     console.warn("No #content element found on this page. Nothing to render.");
     return;
   }
+
+if (navPlace) {
+  fetch('navbar.html') // Fetch the HTML file
+        .then(response => response.text()) // Get the response as text
+        .then(html => {
+            document.getElementById('navbar-placeholder').innerHTML = html; // Insert into the placeholder
+        })
+        .catch(error => {
+            console.error('Error loading the navigation bar:', error);
+        })
+}
 
   // 1) Load site config (title/intro) if those elements exist
   try {
