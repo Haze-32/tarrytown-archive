@@ -46,11 +46,7 @@ async function loadPage(config) {
   var container = document.getElementById("content");
   var navPlace = document.getElementById("navbar-placeholder");
 
-  if (!container) {
-    console.warn("No #content element found on this page. Nothing to render.");
-    return;
-  }
-console.log("1");
+  console.log("1");
 if (navPlace) {
   console.log("2");
   fetch('components/navbar.html') // Fetch the HTML file
@@ -62,6 +58,11 @@ if (navPlace) {
             console.error('Error loading the navigation bar:', error);
         });
 }
+
+  if (!container) {
+    console.warn("No #content element found on this page. Nothing to render.");
+    return;
+  }
 
   // 1) Load site config (title/intro) if those elements exist
   try {
