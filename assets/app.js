@@ -5,20 +5,6 @@
    - Loads metadata (titles/descriptions) from a JSON file
    - Renders Bootstrap cards with <video> + download link
 */
-var navPlace = document.getElementById("navbar-placeholder"); 
-
-console.log("1");
-if (navPlace) {
-  console.log("2");
-  fetch('components/navbar.html') // Fetch the HTML file
-        .then(response => response.text()) // Get the response as text
-        .then(html => {
-            document.getElementById('navbar-placeholder').innerHTML = html; // Insert into the placeholder
-        })
-        .catch(error => {
-            console.error('Error loading the navigation bar:', error);
-        });
-}
 
 async function loadJson(url) {
   const res = await fetch(url, { cache: 'no-store', credentials: 'include' });
