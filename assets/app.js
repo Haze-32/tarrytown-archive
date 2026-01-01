@@ -50,8 +50,9 @@ async function loadPage(config) {
     console.warn("No #content element found on this page. Nothing to render.");
     return;
   }
-
+console.log("1");
 if (navPlace) {
+  console.log("2");
   fetch('components/navbar.html') // Fetch the HTML file
         .then(response => response.text()) // Get the response as text
         .then(html => {
