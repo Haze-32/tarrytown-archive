@@ -1,25 +1,307 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>Full Tapes</title>
-  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Tapes - Tarrytown</title>
+
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css" rel="stylesheet">
+
+  <style>
+    body { background: #0b0f14; }
+
+    .page-wrap { padding: 28px 0; }
+
+    .player-shell {
+      border: 1px solid rgba(255,255,255,0.10);
+      border-radius: 16px;
+      background: rgba(255,255,255,0.03);
+      overflow: hidden;
+    }
+
+    .player-meta {
+      border-top: 1px solid rgba(255,255,255,0.10);
+      background: rgba(0,0,0,0.25);
+    }
+
+    .video-card {
+      border: 1px solid rgba(255,255,255,0.10);
+      border-radius: 14px;
+      background: rgba(255,255,255,0.03);
+      transition: transform 120ms ease, border-color 120ms ease;
+      cursor: pointer;
+    }
+    .video-card:hover {
+      transform: translateY(-1px);
+      border-color: rgba(255,255,255,0.22);
+    }
+    .video-card.active {
+      border-color: rgba(13,110,253,0.8);
+      box-shadow: 0 0 0 2px rgba(13,110,253,0.15) inset;
+    }
+
+    .file-sub {
+      opacity: 0.75;
+      font-size: 0.9rem;
+    }
+
+    .chip {
+      border: 1px solid rgba(255,255,255,0.14);
+      border-radius: 999px;
+      padding: 0.2rem 0.6rem;
+      font-size: 0.78rem;
+      opacity: 0.9;
+      white-space: nowrap;
+    }
+
+    .muted { opacity: 0.75; }
+
+    @media (min-width: 992px) {
+      .list-scroll {
+        max-height: 68vh;
+        overflow: auto;
+        padding-right: 6px;
+      }
+      .list-scroll::-webkit-scrollbar { width: 10px; }
+      .list-scroll::-webkit-scrollbar-thumb {
+        background: rgba(255,255,255,0.10);
+        border-radius: 999px;
+      }
+    }
+  </style>
 </head>
-<body>
 
-<div id="site-nav"></div>
+<body class="text-light">
+  <!-- Shared navbar injected by assets/app.js -->
+  <div id="site-nav"></div>
 
-<div class="container py-4">
-  <div id="site-title" class="h2"></div>
-  <div class="row" id="content"></div>
-</div>
+  <main class="page-wrap">
+    <div class="container">
+      <!-- Page header (JSON-driven) -->
+      <div class="mb-4">
+        <h1 class="h3 mb-1" id="page-title">Full VHS Tapes</h1>
+        <div class="text-secondary" id="page-desc">Loading…</div>
+      </div>
 
-<script src="assets/app.js"></script>
-<script>
-loadPage({
-  dir: 'tapes',
-  meta: 'data/tapes.json'
-});
-</script>
+      <div class="row g-4">
+        <!-- LEFT: Player -->
+        <div class="col-lg-7">
+          <div class="player-shell">
+            <div id="video-player">
+              <div class="p-4 text-secondary">Select a tape to begin.</div>
+            </div>
+
+            <div class="player-meta p-3">
+              <div class="d-flex flex-wrap gap-2 align-items-center justify-content-between">
+                <div>
+                  <div class="fw-semibold" id="current-title">—</div>
+                  <div class="file-sub" id="current-desc">—</div>
+                  <div class="small text-secondary mt-1" id="current-file">—</div>
+                </div>
+
+                <div class="d-flex gap-2">
+                  <a id="btn-download" class="btn btn-outline-light btn-sm disabled" href="#" download>Download</a>
+                  <a id="btn-open" class="btn btn-outline-secondary btn-sm disabled" href="#" target="_blank" rel="noopener">Open</a>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="mt-3 text-secondary small">
+            Tip: If a file is MKV, most browsers won’t play it — use Download.
+          </div>
+        </div>
+
+        <!-- RIGHT: List -->
+        <div class="col-lg-5">
+          <div class="d-flex align-items-center justify-content-between mb-2">
+            <div class="fw-semibold">All Tapes</div>
+            <div class="chip" id="tape-count">—</div>
+          </div>
+
+          <div id="video-list" class="list-scroll">
+            <div class="text-secondary">Loading…</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <script src="assets/app.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/js/bootstrap.bundle.min.js"></script>
+
+  <script>
+    (function () {
+      // Folder on server
+      const PATH = '/videos/tapes/';
+
+      // Metadata file (you already have this)
+      const META_URL = 'data/tapes.json';
+
+      // Page copy file (you already have this)
+      const SITE_URL = 'data/site.json';
+
+      // ---------- Helpers ----------
+      function extOf(name) {
+        return (name.split('.').pop() || '').toLowerCase();
+      }
+
+      function isPlayable(name) {
+        const ext = extOf(name);
+        return ext === 'mp4' || ext === 'webm' || ext === 'm4v';
+      }
+
+      // List files from your existing endpoint
+      function listFiles(path) {
+        return fetch('api/list.php?path=' + encodeURIComponent(path), { cache: 'no-store' })
+          .then(r => r.json())
+          .then(d => Array.isArray(d.files) ? d.files : []);
+      }
+
+      // Load per-video metadata: { "filename.mp4": { title, description } }
+      function loadMeta() {
+        return fetch(META_URL, { cache: 'no-store' })
+          .then(r => r.json())
+          .catch(() => ({}));
+      }
+
+      // Load page title/desc from site.json
+      function loadPageCopy() {
+        return fetch(SITE_URL, { cache: 'no-store' })
+          .then(r => r.json())
+          .then(site => {
+            const tapes = site?.pages?.tapes;
+            if (tapes?.title) document.getElementById('page-title').textContent = tapes.title;
+            document.getElementById('page-desc').textContent = tapes?.description || '';
+          })
+          .catch(() => {
+            document.getElementById('page-desc').textContent = '';
+          });
+      }
+
+      function setButtons(url) {
+        const dl = document.getElementById('btn-download');
+        const op = document.getElementById('btn-open');
+
+        dl.classList.remove('disabled');
+        op.classList.remove('disabled');
+        dl.href = url;
+        op.href = url;
+      }
+
+      function clearButtons() {
+        const dl = document.getElementById('btn-download');
+        const op = document.getElementById('btn-open');
+
+        dl.classList.add('disabled'); dl.href = '#';
+        op.classList.add('disabled'); op.href = '#';
+      }
+
+      // ---------- Rendering ----------
+      function renderPlayer(file, metaMap) {
+        const url = PATH.replace(/\/$/, '') + '/' + file;
+        const player = document.getElementById('video-player');
+
+        // Use your JSON titles/descriptions if present
+        const meta = metaMap[file] || {};
+        const title = meta.title || file;
+        const desc = meta.description || (isPlayable(file) ? 'Plays in browser' : 'Likely needs download (MKV)');
+
+        document.getElementById('current-title').textContent = title;
+        document.getElementById('current-desc').textContent = desc;
+        document.getElementById('current-file').textContent = file;
+
+        setButtons(url);
+
+        if (isPlayable(file)) {
+          player.innerHTML = `
+            <video controls playsinline style="width:100%; max-height:70vh; background:#000;" src="${url}"></video>
+          `;
+        } else {
+          player.innerHTML = `
+            <div class="p-4">
+              <div class="alert alert-warning mb-3">
+                <div><strong>${title}</strong></div>
+                <div class="small">${desc}</div>
+              </div>
+              <a class="btn btn-light" href="${url}" download>Download</a>
+            </div>
+          `;
+        }
+      }
+
+      function renderList(files, metaMap) {
+        const list = document.getElementById('video-list');
+        document.getElementById('tape-count').textContent = files.length + ' file' + (files.length === 1 ? '' : 's');
+
+        if (!files.length) {
+          list.innerHTML = `<div class="alert alert-secondary">No tapes found in ${PATH}</div>`;
+          clearButtons();
+          return;
+        }
+
+        list.innerHTML = files.map(f => {
+          const meta = metaMap[f] || {};
+          const title = meta.title || f;
+          const desc = meta.description || (isPlayable(f) ? 'Click to play' : 'Click to download');
+          const badge = isPlayable(f)
+            ? `<span class="badge text-bg-success">MP4</span>`
+            : `<span class="badge text-bg-warning">MKV</span>`;
+
+          return `
+            <div class="video-card p-3 mb-2" data-file="${encodeURIComponent(f)}" role="button" tabindex="0">
+              <div class="d-flex justify-content-between gap-3">
+                <div class="text-truncate">
+                  <div class="fw-semibold text-truncate">${title}</div>
+                  <div class="file-sub text-truncate">${desc}</div>
+                  <div class="small text-secondary text-truncate">${f}</div>
+                </div>
+                <div class="d-flex align-items-start gap-2">
+                  ${badge}
+                </div>
+              </div>
+            </div>
+          `;
+        }).join('');
+
+        function activate(card) {
+          document.querySelectorAll('.video-card').forEach(el => el.classList.remove('active'));
+          card.classList.add('active');
+          const file = decodeURIComponent(card.getAttribute('data-file'));
+          renderPlayer(file, metaMap);
+        }
+
+        list.addEventListener('click', (e) => {
+          const card = e.target.closest('.video-card');
+          if (!card) return;
+          activate(card);
+        });
+
+        list.addEventListener('keydown', (e) => {
+          if (e.key !== 'Enter' && e.key !== ' ') return;
+          const card = e.target.closest('.video-card');
+          if (!card) return;
+          e.preventDefault();
+          activate(card);
+        });
+
+        // Auto-select first item
+        const first = list.querySelector('.video-card');
+        if (first) activate(first);
+      }
+
+      // ---------- Boot ----------
+      Promise.all([loadPageCopy(), loadMeta(), listFiles(PATH)])
+        .then(([, metaMap, files]) => {
+          // Optional: sort files so newest-ish show first if filenames include dates
+          // files.sort().reverse();
+          renderList(files, metaMap);
+        })
+        .catch(() => {
+          document.getElementById('video-list').innerHTML =
+            `<div class="alert alert-danger">Could not load tapes list.</div>`;
+        });
+    })();
+  </script>
 </body>
 </html>
