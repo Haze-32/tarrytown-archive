@@ -1,5 +1,18 @@
 {
-  "title": "Tarrytown",
-  "intro": "80s - 90s",
-  "footer": ""
+  "brand": "Tarrytown",
+  "pages": {
+    "tapes": {
+      "title": "Full VHS Tapes",
+      "description": "Full-length transfers from the original tapes. Click a tape to play (MP4) or download."
+    },
+    "clips": {
+      "title": "Clips",
+      "description": "Short moments and highlights. MP4 plays in-browser. MKV will usually require download."
+    },
+    "photos": {
+      "title": "Photos",
+      "description": "Coming soon."
+    }
+  }
 }
+
