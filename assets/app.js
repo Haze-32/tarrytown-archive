@@ -1,19 +1,13 @@
 /* assets/app.js
-  What this file does:
-  - Injects a shared navbar onto any page that has <div id="site-nav"></div>
-  - Loads site.json (optional) without crashing if elements are missing
-  - Populates homepage counts (tapes/clips/photos) by calling your PHP list endpoint(s)
-    - It tries multiple URL patterns because your endpoints changed during debugging
-    - It accepts several JSON shapes and extracts a file list safely
+  - Inject shared navbar into <div id="site-nav"></div>
+  - Home page: fill #count-tapes, #count-clips, #count-photos
+  - Tapes/Clips pages: provide loadPage({ path, listId, playerId })
 */
 
 (function () {
   "use strict";
 
-  // ---------- small helpers ----------
-  function $(id) {
-    return document.getElementById(id);
-  }
+  function $(id) { return document.getElementById(id); }
 
   function setTextIfExists(id, text) {
     var el = $(id);
@@ -21,77 +15,16 @@
     el.textContent = text;
   }
 
-  function setHtmlIfExists(id, html) {
-    var el = $(id);
-    if (!el) return;
-    el.innerHTML = html;
-  }
-
-  function safeJson(resp) {
-    // If the server returns HTML or something weird, this prevents a crash.
-    return resp.json().catch(function () { return null; });
-  }
-
-  function extractFiles(payload) {
-    // Accepts multiple possible formats and returns an array of filenames.
-    // Examples supported:
-    // { found: ["a.mp4"] }
-    // { files: ["a.mp4"] }
-    // { data: { files: [...] } }
-    // ["a.mp4", "b.mp4"]
-    if (!payload) return [];
-    if (Array.isArray(payload)) return payload;
-
-    if (payload.found && Array.isArray(payload.found)) return payload.found;
-    if (payload.files && Array.isArray(payload.files)) return payload.files;
-
-    if (payload.data) {
-      if (payload.data.found && Array.isArray(payload.data.found)) return payload.data.found;
-      if (payload.data.files && Array.isArray(payload.data.files)) return payload.data.files;
-    }
-
-    return [];
-  }
-
-  function firstWorkingJson(urls) {
-    // Tries each URL until one returns valid JSON.
-    // Returns a Promise that resolves to the JSON payload (or null).
-    var i = 0;
-
-    function tryNext() {
-      if (i >= urls.length) return Promise.resolve(null);
-      var url = urls[i++];
-
-      return fetch(url, { cache: "no-store" })
-        .then(function (r) {
-          if (!r.ok) return null;
-          return safeJson(r);
-        })
-        .then(function (data) {
-          // If we got null/invalid json, continue
-          if (!data) return tryNext();
-          return data;
-        })
-        .catch(function () {
-          return tryNext();
-        });
-    }
-
-    return tryNext();
-  }
-
-  // ---------- shared navbar ----------
+  // ---------- NAV ----------
   function injectNavbar() {
-    // Only inject if the placeholder exists on the page.
     var host = $("site-nav");
     if (!host) return;
 
-    // You can tweak brand text here later
-    var html =
+    host.innerHTML =
       '<nav class="navbar navbar-dark bg-dark navbar-expand-lg border-bottom border-secondary">' +
       '  <div class="container">' +
       '    <a class="navbar-brand fw-semibold" href="index.html">Tarrytown</a>' +
-      '    <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navMain" aria-controls="navMain" aria-expanded="false" aria-label="Toggle navigation">' +
+      '    <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navMain">' +
       '      <span class="navbar-toggler-icon"></span>' +
       "    </button>" +
       '    <div class="collapse navbar-collapse" id="navMain">' +
@@ -103,90 +36,125 @@
       "    </div>" +
       "  </div>" +
       "</nav>";
-
-    host.innerHTML = html;
   }
 
-  // ---------- optional site.json (won't crash if ids don't exist) ----------
-  function loadSiteMeta() {
-    // You referenced these IDs before; this version won't throw if they aren't on a page.
-    return fetch("data/site.json", { cache: "no-store" })
-      .then(function (r) { return safeJson(r); })
-      .then(function (site) {
-        if (!site) return;
+  // ---------- API ----------
+  function listFiles(path) {
+    // The ONLY supported endpoint now:
+    // /api/list.php?path=/videos/clips/
+    var url = "api/list.php?path=" + encodeURIComponent(path);
 
-        // Optional fields
-        if (site.title) setTextIfExists("site-title", site.title);
-        if (site.intro) setTextIfExists("site-intro", site.intro);
+    return fetch(url, { cache: "no-store" })
+      .then(function (r) {
+        if (!r.ok) throw new Error("List failed: " + r.status);
+        return r.json();
       })
-      .catch(function () { /* ignore */ });
+      .then(function (data) {
+        if (!data || !Array.isArray(data.files)) return [];
+        return data.files;
+      });
   }
 
-  // ---------- counts on the homepage cards ----------
-  function setCountBadge(id, n) {
-    var el = $(id);
-    if (!el) return;
-
-    // Display "0" if empty; looks nicer than blank
-    el.textContent = String(n);
+  function isPlayableInBrowser(filename) {
+    // Most browsers play mp4/webm. MKV is usually NOT playable.
+    var ext = filename.split(".").pop().toLowerCase();
+    return ext === "mp4" || ext === "webm" || ext === "m4v";
   }
 
+  // ---------- HOME COUNTS ----------
   function loadCounts() {
-    // Only run counts if the placeholders exist (homepage).
+    // Only run on pages that have these ids
     var needsCounts = $("count-tapes") || $("count-clips") || $("count-photos");
     if (!needsCounts) return;
 
-    // We will try multiple endpoints for each folder.
-    // This is defensive because your endpoints changed names during debugging.
-    function countFor(folderType) {
-      // folderType: "tapes" | "clips" | "photos"
-
-      // Common places you might have ended up with:
-      // - /api/list.php?type=tapes
-      // - /api/list.php?folder=tapes
-      // - /list-videos.php?type=tapes
-      // - /list-videos.php?folder=videos/tapes
-      // - /list-videos.php?dir=/videos/tapes
-      var urls = [
-        "api/list.php?type=" + encodeURIComponent(folderType),
-        "api/list.php?folder=" + encodeURIComponent(folderType),
-        "api/list.php?dir=" + encodeURIComponent("videos/" + folderType),
-        "list-videos.php?type=" + encodeURIComponent(folderType),
-        "list-videos.php?folder=" + encodeURIComponent("videos/" + folderType),
-        "list-videos.php?dir=" + encodeURIComponent("/videos/" + folderType)
-      ];
-
-      return firstWorkingJson(urls).then(function (payload) {
-        var files = extractFiles(payload);
-
-        // Filter out junk filenames just in case
-        files = files.filter(function (name) {
-          return name && name !== "." && name !== "..";
-        });
-
-        return files.length;
-      });
-    }
-
-    // Load all counts in parallel
     Promise.all([
-      countFor("tapes"),
-      countFor("clips"),
-      countFor("photos")
-    ]).then(function (counts) {
-      setCountBadge("count-tapes", counts[0]);
-      setCountBadge("count-clips", counts[1]);
-      setCountBadge("count-photos", counts[2]);
-    }).catch(function () {
-      // If endpoints are unavailable, leave them as "--"
-      // (You can also swap this to "0" if you prefer.)
+      listFiles("/videos/tapes/").catch(function () { return []; }),
+      listFiles("/videos/clips/").catch(function () { return []; }),
+      listFiles("/videos/photos/").catch(function () { return []; })
+    ]).then(function (arr) {
+      setTextIfExists("count-tapes", arr[0].length);
+      setTextIfExists("count-clips", arr[1].length);
+      setTextIfExists("count-photos", arr[2].length);
     });
   }
+
+  // ---------- PAGE LOADER (tapes/clips) ----------
+  // Expose as global so clips.html/tapes.html can call it.
+  window.loadPage = function loadPage(opts) {
+    // opts = { path: "/videos/clips/", listId: "video-list", playerId: "video-player" }
+    opts = opts || {};
+    var path = opts.path;
+    var listId = opts.listId;
+    var playerId = opts.playerId;
+
+    var listEl = $(listId);
+    var playerEl = $(playerId);
+
+    if (!path || !listEl || !playerEl) return;
+
+    listEl.innerHTML = '<div class="text-muted">Loading…</div>';
+
+    listFiles(path)
+      .then(function (files) {
+        if (!files.length) {
+          listEl.innerHTML = '<div class="alert alert-secondary">No videos found in ' + path + '</div>';
+          return;
+        }
+
+        // Build list of buttons
+        var html = "";
+        files.forEach(function (name, idx) {
+          var playable = isPlayableInBrowser(name);
+          html +=
+            '<button type="button" class="list-group-item list-group-item-action bg-dark text-light border-secondary d-flex justify-content-between align-items-center" ' +
+            'data-file="' + encodeURIComponent(name) + '">' +
+            '<span class="text-truncate me-2">' + name + '</span>' +
+            (playable
+              ? '<span class="badge text-bg-success">Play</span>'
+              : '<span class="badge text-bg-warning">Download</span>') +
+            "</button>";
+        });
+
+        listEl.innerHTML = '<div class="list-group">' + html + "</div>";
+
+        // Click handler (event delegation)
+        listEl.onclick = function (e) {
+          var btn = e.target.closest("button[data-file]");
+          if (!btn) return;
+
+          var file = decodeURIComponent(btn.getAttribute("data-file"));
+          var url = path.replace(/\/$/, "") + "/" + file; // /videos/clips + /file
+
+          if (isPlayableInBrowser(file)) {
+            playerEl.innerHTML =
+              '<video controls playsinline style="width:100%; max-height:70vh;" src="' + url + '"></video>' +
+              '<div class="mt-2 d-flex gap-2">' +
+              '  <a class="btn btn-outline-light btn-sm" href="' + url + '" download>Download</a>' +
+              '  <a class="btn btn-outline-secondary btn-sm" href="' + url + '" target="_blank" rel="noopener">Open</a>' +
+              "</div>";
+          } else {
+            // MKV: show download + note
+            playerEl.innerHTML =
+              '<div class="alert alert-warning">' +
+              "<div><strong>This file may not play in the browser:</strong> " + file + "</div>" +
+              "<div>Most browsers don’t support MKV playback. Download it to watch.</div>" +
+              "</div>" +
+              '<a class="btn btn-light" href="' + url + '" download>Download ' + file + "</a>";
+          }
+        };
+
+        // Auto-select first file
+        var firstBtn = listEl.querySelector("button[data-file]");
+        if (firstBtn) firstBtn.click();
+      })
+      .catch(function (err) {
+        listEl.innerHTML = '<div class="alert alert-danger">Error loading list: ' + (err && err.message ? err.message : err) + "</div>";
+      });
+  };
 
   // ---------- boot ----------
   document.addEventListener("DOMContentLoaded", function () {
     injectNavbar();
-    loadSiteMeta();
     loadCounts();
   });
 })();

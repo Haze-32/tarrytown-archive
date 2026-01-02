@@ -9,20 +9,16 @@
 <div id="site-nav"></div>
 
 <div class="container py-4">
-  <div id="site-title" class="h2"></div>
-  
-  <p id="site-intro" class="text-muted"></p>
+  <div id="video-player"></div>
+<div id="video-list"></div>>
   <div class="row" id="content"></div>
 </div>
 
 <script src="assets/app.js"></script>
 <script>
-loadPage({
-  dir: 'clips',
-  meta: 'data/clips.json'
-});
+  loadPage({ path: "/videos/clips/", listId: "video-list", playerId: "video-player" });
 </script>
 
-
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>
