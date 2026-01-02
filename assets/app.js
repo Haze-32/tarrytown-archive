@@ -1,115 +1,192 @@
 /* assets/app.js
-   Shared JS for Tarrytown archive pages.
-   - Loads site title/intro from data/site.json (if elements exist)
-   - Loads folder file list from api/list.php?dir=tapes|clips
-   - Loads metadata (titles/descriptions) from a JSON file
-   - Renders Bootstrap cards with <video> + download link
+  What this file does:
+  - Injects a shared navbar onto any page that has <div id="site-nav"></div>
+  - Loads site.json (optional) without crashing if elements are missing
+  - Populates homepage counts (tapes/clips/photos) by calling your PHP list endpoint(s)
+    - It tries multiple URL patterns because your endpoints changed during debugging
+    - It accepts several JSON shapes and extracts a file list safely
 */
 
-async function loadJson(url) {
-  const res = await fetch(url, { cache: 'no-store', credentials: 'include' });
-  if (!res.ok) throw new Error(`Failed to load ${url} (${res.status})`);
-  return res.json();
-}
+(function () {
+  "use strict";
 
-function setTextIfExists(id, text) {
-  var el = document.getElementById(id);
-  if (el) el.textContent = text;
-}
+  // ---------- small helpers ----------
+  function $(id) {
+    return document.getElementById(id);
+  }
 
-function escapeHtml(str) {
-  return String(str).replace(/[&<>"']/g, function (c) {
-    return ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#39;" })[c];
+  function setTextIfExists(id, text) {
+    var el = $(id);
+    if (!el) return;
+    el.textContent = text;
+  }
+
+  function setHtmlIfExists(id, html) {
+    var el = $(id);
+    if (!el) return;
+    el.innerHTML = html;
+  }
+
+  function safeJson(resp) {
+    // If the server returns HTML or something weird, this prevents a crash.
+    return resp.json().catch(function () { return null; });
+  }
+
+  function extractFiles(payload) {
+    // Accepts multiple possible formats and returns an array of filenames.
+    // Examples supported:
+    // { found: ["a.mp4"] }
+    // { files: ["a.mp4"] }
+    // { data: { files: [...] } }
+    // ["a.mp4", "b.mp4"]
+    if (!payload) return [];
+    if (Array.isArray(payload)) return payload;
+
+    if (payload.found && Array.isArray(payload.found)) return payload.found;
+    if (payload.files && Array.isArray(payload.files)) return payload.files;
+
+    if (payload.data) {
+      if (payload.data.found && Array.isArray(payload.data.found)) return payload.data.found;
+      if (payload.data.files && Array.isArray(payload.data.files)) return payload.data.files;
+    }
+
+    return [];
+  }
+
+  function firstWorkingJson(urls) {
+    // Tries each URL until one returns valid JSON.
+    // Returns a Promise that resolves to the JSON payload (or null).
+    var i = 0;
+
+    function tryNext() {
+      if (i >= urls.length) return Promise.resolve(null);
+      var url = urls[i++];
+
+      return fetch(url, { cache: "no-store" })
+        .then(function (r) {
+          if (!r.ok) return null;
+          return safeJson(r);
+        })
+        .then(function (data) {
+          // If we got null/invalid json, continue
+          if (!data) return tryNext();
+          return data;
+        })
+        .catch(function () {
+          return tryNext();
+        });
+    }
+
+    return tryNext();
+  }
+
+  // ---------- shared navbar ----------
+  function injectNavbar() {
+    // Only inject if the placeholder exists on the page.
+    var host = $("site-nav");
+    if (!host) return;
+
+    // You can tweak brand text here later
+    var html =
+      '<nav class="navbar navbar-dark bg-dark navbar-expand-lg border-bottom border-secondary">' +
+      '  <div class="container">' +
+      '    <a class="navbar-brand fw-semibold" href="index.html">Tarrytown</a>' +
+      '    <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navMain" aria-controls="navMain" aria-expanded="false" aria-label="Toggle navigation">' +
+      '      <span class="navbar-toggler-icon"></span>' +
+      "    </button>" +
+      '    <div class="collapse navbar-collapse" id="navMain">' +
+      '      <div class="navbar-nav ms-auto">' +
+      '        <a class="nav-link" href="tapes.html">Full VHS Tapes</a>' +
+      '        <a class="nav-link" href="clips.html">Clips</a>' +
+      '        <a class="nav-link disabled" href="#" tabindex="-1" aria-disabled="true">Photos</a>' +
+      "      </div>" +
+      "    </div>" +
+      "  </div>" +
+      "</nav>";
+
+    host.innerHTML = html;
+  }
+
+  // ---------- optional site.json (won't crash if ids don't exist) ----------
+  function loadSiteMeta() {
+    // You referenced these IDs before; this version won't throw if they aren't on a page.
+    return fetch("data/site.json", { cache: "no-store" })
+      .then(function (r) { return safeJson(r); })
+      .then(function (site) {
+        if (!site) return;
+
+        // Optional fields
+        if (site.title) setTextIfExists("site-title", site.title);
+        if (site.intro) setTextIfExists("site-intro", site.intro);
+      })
+      .catch(function () { /* ignore */ });
+  }
+
+  // ---------- counts on the homepage cards ----------
+  function setCountBadge(id, n) {
+    var el = $(id);
+    if (!el) return;
+
+    // Display "0" if empty; looks nicer than blank
+    el.textContent = String(n);
+  }
+
+  function loadCounts() {
+    // Only run counts if the placeholders exist (homepage).
+    var needsCounts = $("count-tapes") || $("count-clips") || $("count-photos");
+    if (!needsCounts) return;
+
+    // We will try multiple endpoints for each folder.
+    // This is defensive because your endpoints changed names during debugging.
+    function countFor(folderType) {
+      // folderType: "tapes" | "clips" | "photos"
+
+      // Common places you might have ended up with:
+      // - /api/list.php?type=tapes
+      // - /api/list.php?folder=tapes
+      // - /list-videos.php?type=tapes
+      // - /list-videos.php?folder=videos/tapes
+      // - /list-videos.php?dir=/videos/tapes
+      var urls = [
+        "api/list.php?type=" + encodeURIComponent(folderType),
+        "api/list.php?folder=" + encodeURIComponent(folderType),
+        "api/list.php?dir=" + encodeURIComponent("videos/" + folderType),
+        "list-videos.php?type=" + encodeURIComponent(folderType),
+        "list-videos.php?folder=" + encodeURIComponent("videos/" + folderType),
+        "list-videos.php?dir=" + encodeURIComponent("/videos/" + folderType)
+      ];
+
+      return firstWorkingJson(urls).then(function (payload) {
+        var files = extractFiles(payload);
+
+        // Filter out junk filenames just in case
+        files = files.filter(function (name) {
+          return name && name !== "." && name !== "..";
+        });
+
+        return files.length;
+      });
+    }
+
+    // Load all counts in parallel
+    Promise.all([
+      countFor("tapes"),
+      countFor("clips"),
+      countFor("photos")
+    ]).then(function (counts) {
+      setCountBadge("count-tapes", counts[0]);
+      setCountBadge("count-clips", counts[1]);
+      setCountBadge("count-photos", counts[2]);
+    }).catch(function () {
+      // If endpoints are unavailable, leave them as "--"
+      // (You can also swap this to "0" if you prefer.)
+    });
+  }
+
+  // ---------- boot ----------
+  document.addEventListener("DOMContentLoaded", function () {
+    injectNavbar();
+    loadSiteMeta();
+    loadCounts();
   });
-}
-
-function fileExt(name) {
-  var m = String(name).toLowerCase().match(/\.([a-z0-9]+)$/);
-  return m ? m[1] : "";
-}
-
-function mimeForFile(name) {
-  // Helps some browsers decide how to handle the source.
-  // NOTE: MKV generally still won't play natively.
-  var ext = fileExt(name);
-  if (ext === "mp4" || ext === "m4v") return "video/mp4";
-  if (ext === "webm") return "video/webm";
-  if (ext === "mov") return "video/quicktime";
-  if (ext === "mkv") return "video/x-matroska";
-  return "";
-}
-
-async function loadPage(config) {
-  // config: { dir: "tapes"|"clips", meta: "data/tapes.json", titleElId?, introElId? }
-  var titleElId = config.titleElId || "site-title";
-  var introElId = config.introElId || "site-intro";
-  var container = document.getElementById("content");
-
-  if (!container) {
-    console.warn("No #content element found on this page. Nothing to render.");
-    return;
-  }
-
-  // 1) Load site config (title/intro) if those elements exist
-  try {
-    var site = await loadJson("data/site.json");
-    if (site && site.title) setTextIfExists(titleElId, site.title);
-    if (site && site.intro) setTextIfExists(introElId, site.intro);
-  } catch (e) {
-    console.warn("Could not load site.json:", e);
-  }
-
-  // 2) Load file list + metadata
-  var files, meta;
-  try {
-    files = await loadJson("api/list.php?dir=" + encodeURIComponent(config.dir));
-  } catch (e) {
-    console.error("Could not load file list:", e);
-    container.innerHTML = '<div class="alert alert-danger">Could not load video list.</div>';
-    return;
-  }
-
-  try {
-    meta = await loadJson(config.meta);
-  } catch (e) {
-    console.warn("Could not load metadata JSON (" + config.meta + "). Continuing with filenames only.");
-    meta = {};
-  }
-
-  if (!Array.isArray(files) || files.length === 0) {
-    container.innerHTML = '<div class="alert alert-secondary">No videos found in <code>/videos/' + escapeHtml(config.dir) + '/</code>.</div>';
-    return;
-  }
-
-  // 3) Render cards
-  container.innerHTML = ""; // clear existing
-
-  files.forEach(function (file) {
-    var info = (meta && meta[file]) ? meta[file] : {};
-    var title = info.title ? info.title : file;
-    var desc = info.description ? info.description : "";
-
-    // IMPORTANT: These pages live in /tarrytown/, so relative path "videos/dir/file" is correct.
-    var videoUrl = "videos/" + config.dir + "/" + encodeURIComponent(file);
-    var mime = mimeForFile(file);
-
-    var html = ''
-      + '<div class="col-md-6 col-lg-4 mb-4">'
-      + '  <div class="card h-100">'
-      + '    <div class="card-body">'
-      + '      <h5 class="card-title">' + escapeHtml(title) + '</h5>'
-      + (desc ? '      <p class="card-text">' + escapeHtml(desc) + '</p>' : '')
-      + '    </div>'
-      + '    <video controls preload="metadata" class="w-100" style="background:#000; max-height:240px;">'
-      + '      <source src="' + videoUrl + '"' + (mime ? ' type="' + mime + '"' : "") + '>'
-      + '      Sorry, your browser cannot play this file format.'
-      + '    </video>'
-      + '    <div class="card-footer text-center">'
-      + '      <a href="' + videoUrl + '" download>Download</a>'
-      + '    </div>'
-      + '  </div>'
-      + '</div>';
-
-    container.insertAdjacentHTML("beforeend", html);
-  });
-}
+})();
